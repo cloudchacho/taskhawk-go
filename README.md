@@ -107,8 +107,8 @@ We use GitHub issues for tracking bugs and feature requests.
 
 ## Release notes
 
-**Current version: v1.0.2-dev**
+**Current version: v0.2.0-dev**
 
-### v1.0.0
+### v0.1.0
 
   - Initial version
