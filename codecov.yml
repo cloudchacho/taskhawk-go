@@ -1,0 +1,11 @@
+ignore:
+  - "**/*.pb.go"  # proto compiled
+coverage:
+  status:
+    project:
+      default:
+        target: 85%
+        threshold: 1%
+    patch:
+      default:
+        target: 70%

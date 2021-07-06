@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -10,6 +10,7 @@ package taskhawk
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/pkg/errors"
 )
 

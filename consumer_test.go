@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -15,7 +15,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/pkg/errors"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

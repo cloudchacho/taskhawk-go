@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -64,7 +64,7 @@ func TestCall(t *testing.T) {
 	receipt := uuid.NewV4().String()
 	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTask")
 	require.NoError(t, err)
-	message := message{
+	m := message{
 		Headers: map[string]string{"request_id": uuid.NewV4().String()},
 		ID:      "message-id",
 		Input: &SendEmailTaskInput{
@@ -80,8 +80,8 @@ func TestCall(t *testing.T) {
 		task:         newTaskDef(fetchedTask, taskRegistry),
 		taskRegistry: taskRegistry,
 	}
-	require.NoError(t, message.validate())
-	assert.NoError(t, message.callTask(ctx, receipt))
+	require.NoError(t, m.validate())
+	assert.NoError(t, m.callTask(ctx, receipt))
 	task.AssertExpectations(t)
 }
 
@@ -115,7 +115,7 @@ func TestCallNoInput(t *testing.T) {
 	receipt := uuid.NewV4().String()
 	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTaskNoInput")
 	require.NoError(t, err)
-	message := message{
+	m := message{
 		Headers: map[string]string{"request_id": uuid.NewV4().String()},
 		ID:      "message-id",
 		Input:   nil,
@@ -127,8 +127,8 @@ func TestCallNoInput(t *testing.T) {
 		task:         newTaskDef(fetchedTask, taskRegistry),
 		taskRegistry: taskRegistry,
 	}
-	require.NoError(t, message.validate())
-	assert.NoError(t, message.callTask(ctx, receipt))
+	require.NoError(t, m.validate())
+	assert.NoError(t, m.callTask(ctx, receipt))
 	task.AssertExpectations(t)
 }
 
@@ -168,7 +168,7 @@ func TestCallHeaders(t *testing.T) {
 	receipt := uuid.NewV4().String()
 	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTaskHeaders")
 	require.NoError(t, err)
-	message := message{
+	m := message{
 		Headers: map[string]string{"request_id": uuid.NewV4().String()},
 		ID:      "message-id",
 		Input:   task.NewInput(),
@@ -181,12 +181,12 @@ func TestCallHeaders(t *testing.T) {
 		taskRegistry: taskRegistry,
 	}
 	expectedInput := &SendEmailTaskHeadersInput{}
-	expectedInput.Headers = message.Headers
+	expectedInput.Headers = m.Headers
 
 	task.On("Run", ctx, expectedInput).Return(nil)
 
-	require.NoError(t, message.validate())
-	assert.NoError(t, message.callTask(ctx, receipt))
+	require.NoError(t, m.validate())
+	assert.NoError(t, m.callTask(ctx, receipt))
 	task.AssertExpectations(t)
 }
 
@@ -223,7 +223,7 @@ func TestCallMetadata(t *testing.T) {
 	receipt := uuid.NewV4().String()
 	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTaskMetadata")
 	require.NoError(t, err)
-	message := message{
+	m := message{
 		Headers: map[string]string{"request_id": uuid.NewV4().String()},
 		ID:      "message-id",
 		Input:   &SendEmailTaskMetadataInput{},
@@ -237,14 +237,14 @@ func TestCallMetadata(t *testing.T) {
 	}
 
 	expectedInput := &SendEmailTaskMetadataInput{}
-	expectedInput.ID = message.ID
+	expectedInput.ID = m.ID
 	expectedInput.SetPriority(PriorityHigh)
 	expectedInput.SetReceipt(receipt)
-	expectedInput.SetTimestamp(message.Metadata.Timestamp)
-	expectedInput.SetVersion(message.Metadata.Version)
+	expectedInput.SetTimestamp(m.Metadata.Timestamp)
+	expectedInput.SetVersion(m.Metadata.Version)
 	task.On("Run", ctx, expectedInput).Return(nil)
 
-	require.NoError(t, message.validate())
-	assert.NoError(t, message.callTask(ctx, receipt))
+	require.NoError(t, m.validate())
+	assert.NoError(t, m.callTask(ctx, receipt))
 	task.AssertExpectations(t)
 }

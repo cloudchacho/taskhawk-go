@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -23,7 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/aws/aws-sdk-go/service/sqs/sqsiface"
 	"github.com/pkg/errors"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -51,11 +51,14 @@ func (fs *FakeSQS) SendMessageWithContext(ctx aws.Context, in *sqs.SendMessageIn
 	return args.Get(0).(*sqs.SendMessageOutput), args.Error(1)
 }
 
+// revive:disable:var-naming
 func (fs *FakeSQS) GetQueueUrlWithContext(ctx aws.Context, in *sqs.GetQueueUrlInput,
 	options ...request.Option) (*sqs.GetQueueUrlOutput, error) {
 	args := fs.Called(ctx, in)
 	return args.Get(0).(*sqs.GetQueueUrlOutput), args.Error(1)
 }
+
+// revive:enable:var-naming
 
 func (fs *FakeSQS) ReceiveMessageWithContext(ctx aws.Context, in *sqs.ReceiveMessageInput,
 	options ...request.Option) (*sqs.ReceiveMessageOutput, error) {
@@ -356,8 +359,8 @@ func TestAmazonWebServices_FetchAndProcessMessages(t *testing.T) {
 		task.On("Run", ctx, &expected).Return(nil)
 
 		message := getValidMessage(t, taskRegistry, input)
-		msgJSON, err := json.Marshal(message)
-		require.NoError(t, err)
+		msgJSON, marshalErr := json.Marshal(message)
+		require.NoError(t, marshalErr)
 
 		outMessages[i] = &sqs.Message{
 			Body:          aws.String(string(msgJSON)),
@@ -513,8 +516,8 @@ func TestAmazonWebServices_PreprocessHookQueueApp(t *testing.T) {
 		task.On("Run", ctx, &expected).Return(nil)
 
 		message := getValidMessage(t, taskRegistry, input)
-		msgJSON, err := json.Marshal(message)
-		require.NoError(t, err)
+		msgJSON, marshalErr := json.Marshal(message)
+		require.NoError(t, marshalErr)
 
 		outMessages[i] = &sqs.Message{
 			Body:          aws.String(string(msgJSON)),
@@ -581,9 +584,9 @@ func TestAmazonWebServices_PreprocessHookQueueApp_Error(t *testing.T) {
 
 	fakeSqs := &FakeSQS{}
 	queueName := "TASKHAWK-DEV-MYAPP-HIGH-PRIORITY"
-	queueUrl := "https://sqs.us-east-1.amazonaws.com/686176732873/" + queueName
+	queueURL := "https://sqs.us-east-1.amazonaws.com/686176732873/" + queueName
 	expectedReceiveMessageInput := &sqs.ReceiveMessageInput{
-		QueueUrl:            &queueUrl,
+		QueueUrl:            &queueURL,
 		MaxNumberOfMessages: aws.Int64(10),
 		VisibilityTimeout:   aws.Int64(10),
 		WaitTimeSeconds:     aws.Int64(sqsWaitTimeoutSeconds),
@@ -598,8 +601,8 @@ func TestAmazonWebServices_PreprocessHookQueueApp_Error(t *testing.T) {
 		}
 
 		message := getValidMessage(t, taskRegistry, input)
-		msgJSON, err := json.Marshal(message)
-		require.NoError(t, err)
+		msgJSON, marshalErr := json.Marshal(message)
+		require.NoError(t, marshalErr)
 
 		outMessages[i] = &sqs.Message{
 			Body:          aws.String(string(msgJSON)),
@@ -607,7 +610,7 @@ func TestAmazonWebServices_PreprocessHookQueueApp_Error(t *testing.T) {
 		}
 
 		expectedDeleteMessageInput := &sqs.DeleteMessageInput{
-			QueueUrl:      &queueUrl,
+			QueueUrl:      &queueURL,
 			ReceiptHandle: outMessages[i].ReceiptHandle,
 		}
 		fakeSqs.On("DeleteMessageWithContext", ctx, expectedDeleteMessageInput).Return(
@@ -615,7 +618,7 @@ func TestAmazonWebServices_PreprocessHookQueueApp_Error(t *testing.T) {
 
 		queueRequest := &QueueRequest{
 			Ctx:          ctx,
-			QueueURL:     queueUrl,
+			QueueURL:     queueURL,
 			QueueName:    queueName,
 			QueueMessage: outMessages[i],
 			TaskRegistry: taskRegistry,
@@ -633,7 +636,7 @@ func TestAmazonWebServices_PreprocessHookQueueApp_Error(t *testing.T) {
 		sqs: fakeSqs,
 		// pre-filled cache
 		queueUrls: map[Priority]*string{
-			PriorityHigh: &queueUrl,
+			PriorityHigh: &queueURL,
 		},
 	}
 	err = awsClient.FetchAndProcessMessages(
@@ -681,8 +684,8 @@ func TestAmazonWebServices_PreprocessHookLambdaApp(t *testing.T) {
 		task.On("Run", mock.Anything, &expected).Return(nil)
 
 		message := getValidMessage(t, taskRegistry, input)
-		msgJSON, err := json.Marshal(message)
-		require.NoError(t, err)
+		msgJSON, marshalErr := json.Marshal(message)
+		require.NoError(t, marshalErr)
 
 		snsRecords[i] = events.SNSEventRecord{
 			SNS: events.SNSEntity{
@@ -748,8 +751,8 @@ func TestAmazonWebServices_PreprocessHookLambdaApp_Error(t *testing.T) {
 		}
 
 		message := getValidMessage(t, taskRegistry, input)
-		msgJSON, err := json.Marshal(message)
-		require.NoError(t, err)
+		msgJSON, marshalErr := json.Marshal(message)
+		require.NoError(t, marshalErr)
 
 		snsRecords[i] = events.SNSEventRecord{
 			SNS: events.SNSEntity{
@@ -815,8 +818,8 @@ func TestAmazonWebServices_HandleLambdaEvent(t *testing.T) {
 		task.On("Run", mock.Anything, &expected).Return(nil)
 
 		message := getValidMessage(t, taskRegistry, input)
-		msgJSON, err := json.Marshal(message)
-		require.NoError(t, err)
+		msgJSON, marshalErr := json.Marshal(message)
+		require.NoError(t, marshalErr)
 
 		snsRecords[i] = events.SNSEventRecord{
 			SNS: events.SNSEntity{

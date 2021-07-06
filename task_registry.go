@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -12,7 +12,7 @@ import (
 	"reflect"
 
 	"github.com/pkg/errors"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 )
 
 // ITaskRegistry is an interface for the task registry to manage tasks

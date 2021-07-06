@@ -1,12 +1,12 @@
 # TaskHawk Go
 
-[![Build Status](https://travis-ci.org/Automatic/taskhawk-go.svg?branch=master)](https://travis-ci.org/Automatic/taskhawk-go)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Automatic/taskhawk-go)](https://goreportcard.com/report/github.com/Automatic/taskhawk-go)
-[![Godoc](https://godoc.org/github.com/Automatic/taskhawk-go?status.svg)](http://godoc.org/github.com/Automatic/taskhawk-go)
+[![Build Status](https://github.com/cloudchacho/taskhawk-go/checks)](https://github.com/cloudchacho/taskhawk-go/actions/workflows/gotest.yml/badge.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/cloudchacho/taskhawk-go)](https://goreportcard.com/report/github.com/cloudchacho/taskhawk-go)
+[![Godoc](https://godoc.org/github.com/cloudchacho/taskhawk-go?status.svg)](http://godoc.org/github.com/cloudchacho/taskhawk-go)
+[![codecov](https://codecov.io/gh/cloudchacho/taskhawk-go/branch/main/graph/badge.svg?token=H6VWFF04JD)](https://codecov.io/gh/cloudchacho/taskhawk-go)
 
-TaskHawk is a replacement for celery that works on AWS SQS/SNS, while
-keeping things pretty simple and straight forward. Any unbound function
-can be converted into a TaskHawk task.
+TaskHawk is a replacement for celery that works on AWS and GCP, while keeping things pretty simple and straight 
+forward. Any unbound function can be converted into a TaskHawk task.
 
 Only Go 1.10+ is supported currently.
 
@@ -17,7 +17,7 @@ This project uses [semantic versioning](http://semver.org/).
 First, install the library:
 
 ```bash
-go get github.com/Automatic/taskhawk-go
+go get github.com/cloudchacho/taskhawk-go
 ```
 
 Convert your function into a "Task" as shown here:
@@ -86,7 +86,7 @@ Assuming that you have golang installed, set up your environment like so:
 
 ```bash
 
-$ cd ${GOPATH}/src/github.com/Automatic/taskhawk-go
+$ cd ${GOPATH}/src/github.com/cloudchacho/taskhawk-go
 $ go build
 ```
 
@@ -103,7 +103,7 @@ $ go test -tags test ./...
 
 We use GitHub issues for tracking bugs and feature requests.
 
-* If it turns out that you may have found a bug, please [open an issue](https://github.com/Automatic/taskhawk-go/issues/new>)
+* If it turns out that you may have found a bug, please [open an issue](https://github.com/cloudchacho/taskhawk-go/issues/new>)
 
 ## Release notes
 

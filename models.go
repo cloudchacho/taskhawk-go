@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -214,7 +214,7 @@ func newMessage(input interface{}, headers map[string]string, id string,
 		Version:   CurrentVersion,
 	}
 
-	message := message{
+	m := message{
 		Headers:      headers,
 		ID:           id,
 		Input:        input,
@@ -222,11 +222,11 @@ func newMessage(input interface{}, headers map[string]string, id string,
 		task:         task,
 		taskRegistry: taskRegistry,
 	}
-	if err := message.validate(); err != nil {
+	if err := m.validate(); err != nil {
 		return nil, err
 	}
 
-	return &message, nil
+	return &m, nil
 }
 
 // Priority of a task. This may be used to differentiate batch jobs from other tasks for example.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -9,14 +9,14 @@
 Package taskhawk is a replacement for celery that works on AWS SQS/SNS, while keeping things pretty simple and
 straightforward. Any unbound function can be converted into a TaskHawk task.
 
-For inter-service messaging, see Hedwig: https://godoc.org/github.com/Automatic/hedwig-go/hedwig.
+For inter-service messaging, see Hedwig: https://godoc.org/github.com/cloudchacho/hedwig-go/hedwig.
 
 Provisioning
 
 Taskhawk works on SQS and SNS as backing queues. Before you can publish tasks,
 you need to provision the required infra. This may be done manually, or, preferably,
 using Terraform. Taskhawk provides tools to make infra configuration easier: see
-Taskhawk Terraform Generator (https://github.com/Automatic/taskhawk-terraform-generator) for further details.
+Taskhawk Terraform Generator (https://github.com/cloudchacho/taskhawk-terraform-generator) for further details.
 
 Using Taskhawk
 
@@ -83,7 +83,7 @@ held for 14 days, and may be examined for further debugging.
 Priority
 
 Taskhawk provides 4 priority queues to use, which may be customized per task, or per message.
-For more details, see https://godoc.org/github.com/Automatic/taskhawk-go/taskhawk#Priority.
+For more details, see https://godoc.org/github.com/cloudchacho/taskhawk-go/taskhawk#Priority.
 
 Metadata and Headers
 

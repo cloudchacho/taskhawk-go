@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -354,7 +354,8 @@ func TestMessage_CallTask(t *testing.T) {
 	task.On("Run", ctx, &expected).Return(nil)
 
 	message := getValidMessage(t, taskRegistry, input)
-	message.validate()
+	err = message.validate()
+	assert.NoError(t, err)
 	receipt := uuid.NewV4().String()
 
 	assert.NoError(t, message.callTask(ctx, receipt))

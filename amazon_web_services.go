@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Aniruddha Maru
@@ -231,7 +231,7 @@ func (a *amazonWebServices) processMessage(wg *sync.WaitGroup, request *QueueReq
 	err = a.messageHandlerSQS(request)
 	switch err {
 	case nil:
-		_, err := a.sqs.DeleteMessageWithContext(request.Ctx, &sqs.DeleteMessageInput{
+		_, err = a.sqs.DeleteMessageWithContext(request.Ctx, &sqs.DeleteMessageInput{
 			QueueUrl:      &request.QueueURL,
 			ReceiptHandle: request.QueueMessage.ReceiptHandle,
 		})
@@ -292,10 +292,10 @@ loop:
 
 func newAmazonWebServices(ctx context.Context, sessionCache *AWSSessionsCache) iamazonWebServices {
 	awsSession := sessionCache.GetSession(ctx)
-	amazonWebServices := amazonWebServices{
+	a := amazonWebServices{
 		sns:       sns.New(awsSession),
 		sqs:       sqs.New(awsSession),
 		queueUrls: nil,
 	}
-	return &amazonWebServices
+	return &a
 }

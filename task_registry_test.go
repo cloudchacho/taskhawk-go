@@ -1,5 +1,5 @@
 /*
- * Copyright 2018, Automatic Inc.
+ * Copyright 2021, Cloudchacho
  * All rights reserved.
  *
  * Author: Michael Ngo
@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -83,7 +83,7 @@ func TestDispatchDefaultHeadersHook(t *testing.T) {
 
 	publisherRequestID := uuid.NewV4().String()
 
-	ctxWithRequestID := context.WithValue(context.Background(), "request_id", publisherRequestID)
+	ctxWithRequestID := context.WithValue(context.Background(), contextKey("request_id"), publisherRequestID)
 	ctxWithSettings := withSettings(ctxWithRequestID, taskRegistry.publisher.Settings())
 
 	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTask")
