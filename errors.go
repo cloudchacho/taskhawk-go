@@ -1,15 +1,13 @@
 /*
- * Copyright 2021, Cloudchacho
+ * Copyright 2022, Cloudchacho
  * All rights reserved.
- *
- * Author: Michael Ngo
  */
 
 package taskhawk
 
-// Error strings used within Taskhawk
-// Error strings are used instead of errors, cause the error stack trace can only be reliably constructed
-// from within the appropriate execution context
-const (
-	ErrStringTaskNotFound = "Task not found"
+import "errors"
+
+// ErrTaskNotFound indicates that task was not found
+var (
+	ErrTaskNotFound = errors.New("task not found")
 )

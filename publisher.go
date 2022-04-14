@@ -1,56 +1,39 @@
-/*
- * Copyright 2021, Cloudchacho
- * All rights reserved.
- *
- * Author: Aniruddha Maru
- */
-
 package taskhawk
 
 import (
 	"context"
-	"encoding/json"
-
-	"github.com/pkg/errors"
 )
 
-// IPublisher interface represents all publish related functions
-type IPublisher interface {
-	// Publish publishes a message on Taskhawk broker
-	Publish(ctx context.Context, message *message) error
-
-	// Settings returns publisher's settings
-	Settings() *Settings
-}
-
-// publisher handles taskhawk publishing for Automatic
+// publisher handles task publishing
 type publisher struct {
-	awsClient iamazonWebServices
-	settings  *Settings
+	backend      PublisherBackend
+	instrumenter Instrumenter
+	serializer   serializer
 }
 
-// Publish a message on Taskhawk
-func (ap *publisher) Publish(ctx context.Context, message *message) error {
-	msgJSON, err := json.Marshal(message)
+// Publish a message on Hedwig
+func (p *publisher) Publish(ctx context.Context, m message) error {
+	payload, attributes, err := p.serializer.serialize(m)
 	if err != nil {
-		return errors.Wrap(err, "unable to marshal message")
+		return err
 	}
 
-	if getIsLambdaApp(ctx) {
-		return ap.awsClient.PublishSNS(ctx, message.Metadata.Priority, string(msgJSON), message.Headers)
+	if p.instrumenter != nil {
+		var finalize func()
+		ctx, attributes, finalize = p.instrumenter.OnDispatch(ctx, m.TaskName, attributes)
+		defer finalize()
 	}
 
-	return ap.awsClient.SendMessageSQS(ctx, message.Metadata.Priority, string(msgJSON), message.Headers)
+	_, err = p.backend.Publish(ctx, payload, attributes, m.Metadata.Priority)
+	return err
 }
 
-func (ap *publisher) Settings() *Settings {
-	return ap.settings
+type serializer interface {
+	serialize(m message) ([]byte, map[string]string, error)
 }
 
-// NewPublisher creates a new publisher
-func NewPublisher(sessionCache *AWSSessionsCache, settings *Settings) IPublisher {
-	return &publisher{
-		awsClient: newAmazonWebServices(withSettings(context.Background(), settings), sessionCache),
-		settings:  settings,
-	}
+// PublisherBackend is used to publish messages to a transport
+type PublisherBackend interface {
+	// Publish a message represented by the payload, with specified attributes to the topic with specified priority
+	Publish(ctx context.Context, payload []byte, attributes map[string]string, priority Priority) (string, error)
 }

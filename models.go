@@ -1,35 +1,30 @@
 /*
- * Copyright 2021, Cloudchacho
+ * Copyright 2022, Cloudchacho
  * All rights reserved.
- *
- * Author: Aniruddha Maru
  */
 
 package taskhawk
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
 
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/pkg/errors"
 )
 
-// JSONTime is just a wrapper around time that serializes time to epoch in milliseconds
-type JSONTime time.Time
+// jsonTime is just a wrapper around time that serializes time to epoch in milliseconds
+type jsonTime time.Time
 
 // MarshalJSON changes time to epoch in milliseconds
-func (t JSONTime) MarshalJSON() ([]byte, error) {
+func (t jsonTime) MarshalJSON() ([]byte, error) {
 	epochMs := time.Time(t).UnixNano() / int64(time.Millisecond)
 	return []byte(strconv.FormatInt(epochMs, 10)), nil
 }
 
 // UnmarshalJSON changes time from epoch in milliseconds or string (RFC3339) to time.Time.
-func (t *JSONTime) UnmarshalJSON(b []byte) error {
+func (t *jsonTime) UnmarshalJSON(b []byte) error {
 	// may be a string timestamp
 	if len(b) > 0 && b[0] == '"' {
 		strTime := ""
@@ -41,7 +36,7 @@ func (t *JSONTime) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return errors.Wrap(err, "unable to parse timestamp")
 		}
-		*t = JSONTime(parsedTime)
+		*t = jsonTime(parsedTime)
 	} else {
 		epochMs, err := strconv.Atoi(string(b))
 		if err != nil {
@@ -49,7 +44,7 @@ func (t *JSONTime) UnmarshalJSON(b []byte) error {
 		}
 		duration := time.Duration(epochMs) * time.Millisecond
 		epochNS := duration.Nanoseconds()
-		*t = JSONTime(time.Unix(0, epochNS))
+		*t = jsonTime(time.Unix(0, epochNS))
 	}
 	return nil
 }
@@ -57,7 +52,7 @@ func (t *JSONTime) UnmarshalJSON(b []byte) error {
 // metadata represents the metadata associated with an object
 type metadata struct {
 	Priority  Priority `json:"priority"`
-	Timestamp JSONTime `json:"timestamp"`
+	Timestamp jsonTime `json:"timestamp"`
 	Version   Version  `json:"version"`
 }
 
@@ -66,97 +61,28 @@ type message struct {
 	Headers map[string]string `json:"headers"`
 	ID      string            `json:"id"`
 	// the format for message is standard across all services, so use "kwargs" instead of "input"
-	Input        interface{} `json:"kwargs"`
-	Metadata     *metadata   `json:"metadata"`
-	task         *taskDef
-	taskRegistry ITaskRegistry
+	Input    any      `json:"kwargs"`
+	Metadata metadata `json:"metadata"`
+	TaskName string   `json:"task"`
 }
 
 // Version represents the message format version
 type Version string
 
 const (
-	// Version1_0 represents the first version of the message format schema
-	Version1_0 Version = "1.0"
+	// Version10 represents the first version of the message format schema
+	Version10 Version = "1.0"
 
 	// CurrentVersion represents the current version of the taskhawk message schema
-	CurrentVersion = Version1_0
+	CurrentVersion = Version10
 )
 
 // versions lists all the valid version for a taskhawk message schema
-var versions = []Version{Version1_0}
-
-func (m message) MarshalJSON() ([]byte, error) {
-	type MessageClone message
-	mClone := &struct {
-		*MessageClone
-		Task *taskDef `json:"task"`
-	}{
-		Task:         m.task,
-		MessageClone: (*MessageClone)(&m),
-	}
-	return json.Marshal(mClone)
-}
-
-// UnmarshalJSON deserializes JSON blob into a message
-func (m *message) UnmarshalJSON(b []byte) error {
-	type MessageClone message
-	if err := json.Unmarshal(b, (*MessageClone)(m)); err != nil {
-		return err
-	}
-
-	inputContainer := struct {
-		// delay de-serializing input until we know task input type
-		Input json.RawMessage `json:"kwargs"`
-	}{}
-	if err := json.Unmarshal(b, &inputContainer); err != nil {
-		return err
-	}
-
-	taskContainer := struct {
-		Task json.RawMessage `json:"task"`
-	}{}
-	if err := json.Unmarshal(b, &taskContainer); err != nil {
-		return err
-	}
-
-	if len(taskContainer.Task) == 0 {
-		return errors.New("invalid message, task is required")
-	}
-	if m.taskRegistry == nil {
-		return errors.New("task registry must be set on the message")
-	}
-	td := &taskDef{taskRegistry: m.taskRegistry}
-	if err := json.Unmarshal(taskContainer.Task, td); err != nil {
-		return err
-	}
-	m.task = td
-
-	if m.task == nil {
-		// reset input if we couldn't determine it's type
-		m.Input = nil
-		return nil
-	}
-
-	input := m.task.NewInput()
-	if input == nil {
-		// task doesn't accept input
-		m.Input = nil
-		return nil
-	}
-
-	if err := json.Unmarshal(inputContainer.Input, input); err != nil {
-		return err
-	}
-
-	m.Input = input
-	return nil
-}
+var versions = []Version{Version10}
 
 func (m *message) validateRequired() error {
-	if m.ID == "" || m.Metadata == nil || m.Metadata.Version == "" || m.Metadata.Timestamp == JSONTime(time.Time{}) ||
-		m.Headers == nil || m.task == nil {
-
+	if m.ID == "" || m.Metadata.Version == "" || m.Metadata.Timestamp == jsonTime(time.Time{}) ||
+		m.Headers == nil || m.TaskName == "" {
 		return errors.New("missing required data")
 	}
 	return nil
@@ -176,7 +102,7 @@ func (m *message) validateVersion() error {
 	return nil
 }
 
-// validate validates that message object contains all the right things.
+// validate that message object contains all the right things.
 func (m *message) validate() error {
 	if err := m.validateRequired(); err != nil {
 		return err
@@ -186,47 +112,34 @@ func (m *message) validate() error {
 		return err
 	}
 
-	_, err := m.taskRegistry.GetTask(m.task.Name())
-	if err != nil {
-		return errors.Errorf("invalid task, not registered: %s", m.task.Name())
-	}
-
 	return nil
-}
-
-// CallTask calls the underlying task with given args and kwargs
-func (m *message) callTask(ctx context.Context, receipt string) error {
-	return m.task.call(ctx, m, receipt)
 }
 
 // newMessage creates a new Taskhawk message
 // If metadata is nil, it will be automatically created
 // If the data fails validation, error will be returned.
-func newMessage(input interface{}, headers map[string]string, id string,
-	priority Priority, task *taskDef, taskRegistry ITaskRegistry) (
-	*message, error) {
+func newMessage(taskName string, input any, headers map[string]string, id string, priority Priority) (message, error) {
 
 	// TODO: should probably use a sync.Pool here
 
-	metadata := &metadata{
+	me := metadata{
 		Priority:  priority,
-		Timestamp: JSONTime(time.Now()),
+		Timestamp: jsonTime(time.Now()),
 		Version:   CurrentVersion,
 	}
 
 	m := message{
-		Headers:      headers,
-		ID:           id,
-		Input:        input,
-		Metadata:     metadata,
-		task:         task,
-		taskRegistry: taskRegistry,
+		TaskName: taskName,
+		Headers:  headers,
+		ID:       id,
+		Input:    input,
+		Metadata: me,
 	}
 	if err := m.validate(); err != nil {
-		return nil, err
+		return m, err
 	}
 
-	return &m, nil
+	return m, nil
 }
 
 // Priority of a task. This may be used to differentiate batch jobs from other tasks for example.
@@ -278,22 +191,4 @@ func (p *Priority) UnmarshalJSON(b []byte) error {
 		return errors.New("unknown priority")
 	}
 	return nil
-}
-
-// QueueRequest represents a request for queue apps
-type QueueRequest struct {
-	Ctx          context.Context
-	Priority     Priority
-	QueueMessage *sqs.Message
-	QueueName    string
-	QueueURL     string
-	TaskRegistry ITaskRegistry
-}
-
-// LambdaRequest represents a request for lambda apps
-type LambdaRequest struct {
-	Ctx          context.Context
-	Priority     Priority
-	Record       *events.SNSEventRecord
-	TaskRegistry ITaskRegistry
 }

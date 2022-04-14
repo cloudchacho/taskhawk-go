@@ -1,8 +1,6 @@
 /*
- * Copyright 2021, Cloudchacho
+ * Copyright 2022, Cloudchacho
  * All rights reserved.
- *
- * Author: Aniruddha Maru
  */
 
 package taskhawk
@@ -13,238 +11,196 @@ import (
 	"time"
 
 	uuid "github.com/satori/go.uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// Implements ITask
 type SendEmailTask struct {
-	Task
 	mock.Mock
 }
 
-func NewSendEmailTask() *SendEmailTask {
-	return &SendEmailTask{
-		Task: Task{
-			TaskName: "task_test.SendEmailTask",
-			Inputer: func() interface{} {
-				return new(SendEmailTaskInput)
-			},
-		},
-	}
-}
-
-type SendEmailTaskInput struct {
-	To      string
-	Subject string
-	From    string `json:",omitempty"`
-}
-
-func (t *SendEmailTask) Run(ctx context.Context, rawInput interface{}) error {
-	input := rawInput.(*SendEmailTaskInput)
+func (t *SendEmailTask) Run(ctx context.Context, input *SendEmailTaskInput) error {
 	args := t.Called(ctx, input)
 	return args.Error(0)
 }
 
+type SendEmailTaskInput struct {
+	To   string    `json:"to"`
+	From string    `json:"from"`
+	At   time.Time `json:"time"`
+}
+
 func TestCall(t *testing.T) {
-	taskRegistry, err := NewTaskRegistry(fakePublisher)
-	require.NoError(t, err)
-	task := NewSendEmailTask()
-	require.NoError(t, taskRegistry.RegisterTask(task))
 	ctx := context.Background()
 
-	input := &SendEmailTaskInput{
-		To:      "mail@example.com",
-		From:    "mail@spammer.com",
-		Subject: "Hi there!",
-	}
-	task.On("Run", ctx, input).Return(nil)
+	taskRef := &SendEmailTask{}
 
-	receipt := uuid.NewV4().String()
-	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTask")
+	hub := NewHub(Config{}, nil)
+	_, err := RegisterTask(hub, "main.SendEmailTask", taskRef.Run)
+
+	fetchedTask, err := hub.getTask("main.SendEmailTask")
 	require.NoError(t, err)
+
+	sendTime := time.Now()
+
 	m := message{
 		Headers: map[string]string{"request_id": uuid.NewV4().String()},
 		ID:      "message-id",
 		Input: &SendEmailTaskInput{
-			To:      "mail@example.com",
-			From:    "mail@spammer.com",
-			Subject: "Hi there!",
+			To:   "mail@example.com",
+			From: "spam@example.com",
+			At:   sendTime,
 		},
-		Metadata: &metadata{
-			Priority:  PriorityDefault,
-			Timestamp: JSONTime(time.Now()),
+		Metadata: metadata{
+			Priority:  PriorityHigh,
+			Timestamp: jsonTime(time.Now()),
 			Version:   CurrentVersion,
 		},
-		task:         newTaskDef(fetchedTask, taskRegistry),
-		taskRegistry: taskRegistry,
 	}
-	require.NoError(t, m.validate())
-	assert.NoError(t, m.callTask(ctx, receipt))
-	task.AssertExpectations(t)
-}
 
-type SendEmailTaskNoInput struct {
-	Task
-	mock.Mock
-}
+	provider := struct{}{}
 
-func NewSendEmailTaskNoInput() *SendEmailTaskNoInput {
-	return &SendEmailTaskNoInput{
-		Task: Task{
-			TaskName: "task_test.SendEmailTaskNoInput",
-		},
+	expectedInput := &SendEmailTaskInput{
+		To:   "mail@example.com",
+		From: "spam@example.com",
+		At:   sendTime,
 	}
-}
+	taskRef.On("Run", ctx, expectedInput).Return(nil)
 
-func (t *SendEmailTaskNoInput) Run(ctx context.Context, input interface{}) error {
-	args := t.Called(ctx, input)
-	return args.Error(0)
-}
-
-func TestCallNoInput(t *testing.T) {
-	taskRegistry, err := NewTaskRegistry(fakePublisher)
+	err = fetchedTask.call(ctx, m, provider)
 	require.NoError(t, err)
-	task := NewSendEmailTaskNoInput()
-	require.NoError(t, taskRegistry.RegisterTask(task))
-	ctx := context.Background()
 
-	task.On("Run", ctx, nil).Return(nil)
-
-	receipt := uuid.NewV4().String()
-	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTaskNoInput")
-	require.NoError(t, err)
-	m := message{
-		Headers: map[string]string{"request_id": uuid.NewV4().String()},
-		ID:      "message-id",
-		Input:   nil,
-		Metadata: &metadata{
-			Priority:  PriorityDefault,
-			Timestamp: JSONTime(time.Now()),
-			Version:   CurrentVersion,
-		},
-		task:         newTaskDef(fetchedTask, taskRegistry),
-		taskRegistry: taskRegistry,
-	}
-	require.NoError(t, m.validate())
-	assert.NoError(t, m.callTask(ctx, receipt))
-	task.AssertExpectations(t)
+	taskRef.AssertExpectations(t)
 }
 
 type SendEmailTaskHeaders struct {
-	Task
 	mock.Mock
 }
 
-func NewSendEmailTaskHeaders() *SendEmailTaskHeaders {
-	return &SendEmailTaskHeaders{
-		Task: Task{
-			TaskName: "task_test.SendEmailTaskHeaders",
-			Inputer: func() interface{} {
-				return new(SendEmailTaskHeadersInput)
-			},
-		},
-	}
+func (t *SendEmailTaskHeaders) Run(ctx context.Context, input *SendEmailTaskHeadersInput) error {
+	args := t.Called(ctx, input)
+	return args.Error(0)
 }
 
 type SendEmailTaskHeadersInput struct {
-	TaskHeaders
+	headers map[string]string
 }
 
-func (t *SendEmailTaskHeaders) Run(ctx context.Context, rawInput interface{}) error {
-	input := rawInput.(*SendEmailTaskHeadersInput)
-	args := t.Called(ctx, input)
-	return args.Error(0)
+func (s *SendEmailTaskHeadersInput) GetHeaders() map[string]string {
+	return s.headers
+}
+
+func (s *SendEmailTaskHeadersInput) SetHeaders(headers map[string]string) {
+	s.headers = headers
 }
 
 func TestCallHeaders(t *testing.T) {
-	taskRegistry, err := NewTaskRegistry(fakePublisher)
-	require.NoError(t, err)
-	task := NewSendEmailTaskHeaders()
-	require.NoError(t, taskRegistry.RegisterTask(task))
 	ctx := context.Background()
 
-	receipt := uuid.NewV4().String()
-	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTaskHeaders")
+	taskRef := &SendEmailTaskHeaders{}
+
+	hub := NewHub(Config{}, nil)
+	_, err := RegisterTask(hub, "main.SendEmailTaskHeaders", taskRef.Run)
+
+	fetchedTask, err := hub.getTask("main.SendEmailTaskHeaders")
 	require.NoError(t, err)
+
+	requestId := uuid.NewV4().String()
+
 	m := message{
-		Headers: map[string]string{"request_id": uuid.NewV4().String()},
+		Headers: map[string]string{"request_id": requestId},
 		ID:      "message-id",
-		Input:   task.NewInput(),
-		Metadata: &metadata{
-			Priority:  PriorityDefault,
-			Timestamp: JSONTime(time.Now()),
+		Input:   &SendEmailTaskHeadersInput{},
+		Metadata: metadata{
+			Priority:  PriorityHigh,
+			Timestamp: jsonTime(time.Now()),
 			Version:   CurrentVersion,
 		},
-		task:         newTaskDef(fetchedTask, taskRegistry),
-		taskRegistry: taskRegistry,
 	}
+
+	providerHeaders := struct{}{}
+
 	expectedInput := &SendEmailTaskHeadersInput{}
-	expectedInput.Headers = m.Headers
+	expectedInput.SetHeaders(map[string]string{"request_id": requestId})
+	taskRef.On("Run", ctx, expectedInput).Return(nil)
 
-	task.On("Run", ctx, expectedInput).Return(nil)
+	err = fetchedTask.call(ctx, m, providerHeaders)
+	require.NoError(t, err)
 
-	require.NoError(t, m.validate())
-	assert.NoError(t, m.callTask(ctx, receipt))
-	task.AssertExpectations(t)
+	taskRef.AssertExpectations(t)
 }
 
 type SendEmailTaskMetadata struct {
-	Task
 	mock.Mock
 }
 
-type SendEmailTaskMetadataInput struct {
-	TaskMetadata
-}
-
-func (t *SendEmailTaskMetadata) Run(ctx context.Context, rawInput interface{}) error {
-	input := rawInput.(*SendEmailTaskMetadataInput)
+func (t *SendEmailTaskMetadata) Run(ctx context.Context, input *SendEmailTaskMetadataInput) error {
 	args := t.Called(ctx, input)
 	return args.Error(0)
 }
 
-func (t *SendEmailTaskMetadata) NewInput() interface{} {
-	return &SendEmailTaskMetadataInput{}
+type SendEmailTaskMetadataInput struct {
+	id               string
+	priority         Priority
+	providerMetadata any
+	timestamp        time.Time
+	version          Version
 }
 
-func (t *SendEmailTaskMetadata) Name() string {
-	return "task_test.SendEmailTaskMetadata"
+func (s *SendEmailTaskMetadataInput) SetPriority(priority Priority) {
+	s.priority = priority
+}
+
+func (s *SendEmailTaskMetadataInput) SetProviderMetadata(a any) {
+	s.providerMetadata = a
+}
+
+func (s *SendEmailTaskMetadataInput) SetTimestamp(t time.Time) {
+	s.timestamp = t
+}
+
+func (s *SendEmailTaskMetadataInput) SetVersion(version Version) {
+	s.version = version
+}
+
+func (s *SendEmailTaskMetadataInput) SetID(id string) {
+	s.id = id
 }
 
 func TestCallMetadata(t *testing.T) {
-	taskRegistry, err := NewTaskRegistry(fakePublisher)
-	require.NoError(t, err)
-	task := &SendEmailTaskMetadata{}
-	require.NoError(t, taskRegistry.RegisterTask(task))
 	ctx := context.Background()
 
-	receipt := uuid.NewV4().String()
-	fetchedTask, err := taskRegistry.GetTask("task_test.SendEmailTaskMetadata")
+	taskRef := &SendEmailTaskMetadata{}
+
+	hub := NewHub(Config{}, nil)
+	_, err := RegisterTask(hub, "main.SendEmailTaskMetadata", taskRef.Run)
+
+	fetchedTask, err := hub.getTask("main.SendEmailTaskMetadata")
 	require.NoError(t, err)
+
 	m := message{
 		Headers: map[string]string{"request_id": uuid.NewV4().String()},
 		ID:      "message-id",
 		Input:   &SendEmailTaskMetadataInput{},
-		Metadata: &metadata{
+		Metadata: metadata{
 			Priority:  PriorityHigh,
-			Timestamp: JSONTime(time.Now()),
+			Timestamp: jsonTime(time.Now()),
 			Version:   CurrentVersion,
 		},
-		task:         newTaskDef(fetchedTask, taskRegistry),
-		taskRegistry: taskRegistry,
 	}
 
-	expectedInput := &SendEmailTaskMetadataInput{}
-	expectedInput.ID = m.ID
-	expectedInput.SetPriority(PriorityHigh)
-	expectedInput.SetReceipt(receipt)
-	expectedInput.SetTimestamp(m.Metadata.Timestamp)
-	expectedInput.SetVersion(m.Metadata.Version)
-	task.On("Run", ctx, expectedInput).Return(nil)
+	providerMetadata := struct{}{}
 
-	require.NoError(t, m.validate())
-	assert.NoError(t, m.callTask(ctx, receipt))
-	task.AssertExpectations(t)
+	expectedInput := &SendEmailTaskMetadataInput{}
+	expectedInput.SetID(m.ID)
+	expectedInput.SetPriority(PriorityHigh)
+	expectedInput.SetProviderMetadata(providerMetadata)
+	expectedInput.SetTimestamp(time.Time(m.Metadata.Timestamp))
+	expectedInput.SetVersion(m.Metadata.Version)
+	taskRef.On("Run", ctx, expectedInput).Return(nil)
+
+	err = fetchedTask.call(ctx, m, providerMetadata)
+	require.NoError(t, err)
+
+	taskRef.AssertExpectations(t)
 }

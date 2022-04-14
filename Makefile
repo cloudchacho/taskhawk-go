@@ -1,7 +1,7 @@
 .PHONY: test
 
 test: clean
-	go test -mod=readonly -v -tags test -race ./...
+	./run-tests.sh
 
 lint:
 	golangci-lint --build-tags test run ./...

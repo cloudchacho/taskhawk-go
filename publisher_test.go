@@ -1,95 +1,137 @@
-/*
- * Copyright 2021, Cloudchacho
- * All rights reserved.
- *
- * Author: Aniruddha Maru
- */
-
 package taskhawk
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/pkg/errors"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 )
 
-type fakePublisherImpl struct {
+func (s *PublisherTestSuite) TestPublish() {
+	ctx := context.Background()
+
+	data := fakeTaskInput{
+		To: "mail@example.com",
+	}
+	m, err := newMessage("main.SendEmail", &data, map[string]string{}, uuid.NewV4().String(), PriorityDefault)
+	s.Require().NoError(err)
+
+	payload := []byte(`{"task": "main.SendEmail"}`)
+	headers := map[string]string{}
+
+	s.serializer.On("serialize", m).
+		Return(payload, headers, nil)
+
+	messageID := "123"
+
+	s.backend.On("Publish", ctx, payload, headers, PriorityDefault).
+		Return(messageID, nil)
+
+	err = s.publisher.Publish(ctx, m)
+	s.NoError(err)
+
+	s.backend.AssertExpectations(s.T())
+}
+
+func (s *PublisherTestSuite) TestPublishSerializeError() {
+	ctx := context.Background()
+
+	data := fakeTaskInput{
+		To: "mail@example.com",
+	}
+	m, err := newMessage("main.SendEmail", &data, map[string]string{}, uuid.NewV4().String(), PriorityDefault)
+	s.Require().NoError(err)
+
+	s.serializer.On("serialize", m).
+		Return([]byte(""), map[string]string{}, errors.New("failed to serialize"))
+
+	err = s.publisher.Publish(ctx, m)
+	s.EqualError(err, "failed to serialize")
+
+	s.backend.AssertExpectations(s.T())
+}
+
+func (s *PublisherTestSuite) TestPublishSendsTraceID() {
+	ctx := context.Background()
+	instrumentedCtx := context.WithValue(ctx, contextKey("instrumented"), true)
+
+	data := fakeTaskInput{
+		To: "mail@example.com",
+	}
+	m, err := newMessage("main.SendEmail", &data, map[string]string{}, uuid.NewV4().String(), PriorityDefault)
+	s.Require().NoError(err)
+
+	payload := []byte(`{"task": "main.SendEmail"}`)
+	headers := map[string]string{}
+
+	instrumentedHeaders := map[string]string{"traceparent": "00-aa2ada259e917551e16da4a0ad33db24-662fd261d30ec74c-01"}
+
+	instrumenter := &fakeInstrumenter{}
+	s.publisher.instrumenter = instrumenter
+
+	called := false
+
+	instrumenter.On("OnDispatch", ctx, m.TaskName, headers).
+		Return(instrumentedCtx, instrumentedHeaders, func() { called = true })
+
+	s.serializer.On("serialize", m).
+		Return(payload, headers, nil)
+
+	messageID := "123"
+
+	s.backend.On("Publish", instrumentedCtx, payload, instrumentedHeaders, PriorityDefault).
+		Return(messageID, nil)
+
+	err = s.publisher.Publish(ctx, m)
+	s.NoError(err)
+
+	s.backend.AssertExpectations(s.T())
+	instrumenter.AssertExpectations(s.T())
+	s.True(called)
+}
+
+func (s *PublisherTestSuite) TestNew() {
+	assert.NotNil(s.T(), s.publisher)
+}
+
+type PublisherTestSuite struct {
+	suite.Suite
+	publisher  *publisher
+	backend    *fakeBackend
+	serializer *fakeSerializer
+}
+
+type fakeSerializer struct {
 	mock.Mock
-	settings *Settings
 }
 
-func (p *fakePublisherImpl) Publish(ctx context.Context, message *message) error {
-	args := p.Called(ctx, message)
-	return args.Error(0)
+func (f *fakeSerializer) serialize(m message) ([]byte, map[string]string, error) {
+	args := f.Called(m)
+	return args.Get(0).([]byte), args.Get(1).(map[string]string), args.Error(2)
 }
 
-func (p *fakePublisherImpl) Settings() *Settings {
-	return p.settings
+func (f *fakeSerializer) withUseTransportMessageAttributes(useTransportMessageAttributes bool) {
+	f.Called(useTransportMessageAttributes)
 }
 
-var fakePublisher = &fakePublisherImpl{
-	settings: getQueueTestSettings(),
-}
+func (s *PublisherTestSuite) SetupTest() {
+	backend := &fakeBackend{}
+	ser := &fakeSerializer{}
 
-func resetFakePublisher() {
-	fakePublisher.Mock = mock.Mock{}
-	fakePublisher.settings = getQueueTestSettings()
-}
-
-func TestPublish(t *testing.T) {
-	// I miss pytest :(
-	allParams := []map[string]interface{}{
-		{
-			"settings":  getLambdaTestSettings(),
-			"awsMethod": "PublishSNS",
-		},
-		{
-			"settings":  getQueueTestSettings(),
-			"awsMethod": "SendMessageSQS",
-		},
+	s.publisher = &publisher{
+		backend:      backend,
+		instrumenter: nil,
+		serializer:   ser,
 	}
-
-	for _, params := range allParams {
-		settings := params["settings"].(*Settings)
-
-		// Stub out AWS portion
-		fakeClient := &FakeAWS{}
-		publisherObj := publisher{
-			settings:  settings,
-			awsClient: fakeClient,
-		}
-
-		taskRegistry, err := NewTaskRegistry(&publisherObj)
-		require.NoError(t, err)
-		task := NewSendEmailTask()
-		require.NoError(t, taskRegistry.RegisterTask(task))
-
-		message := getValidMessage(t, taskRegistry, nil)
-		message.Metadata.Priority = PriorityHigh
-
-		msgJSON, err := json.Marshal(message)
-		require.NoError(t, err)
-
-		ctx := withSettings(context.Background(), settings)
-
-		fakeClient.On(params["awsMethod"].(string), ctx, message.Metadata.Priority, string(msgJSON),
-			message.Headers).Return(nil)
-
-		assert.NoError(t, publisherObj.Publish(ctx, message))
-
-		fakeClient.AssertExpectations(t)
-	}
+	s.backend = backend
+	s.serializer = ser
 }
 
-func TestNewPublisher(t *testing.T) {
-	settings := getQueueTestSettings()
-
-	sessionCache := &AWSSessionsCache{}
-
-	ipublisher := NewPublisher(sessionCache, settings)
-	assert.NotNil(t, ipublisher)
+func TestPublisherTestSuite(t *testing.T) {
+	suite.Run(t, &PublisherTestSuite{})
 }

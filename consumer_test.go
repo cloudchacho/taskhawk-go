@@ -1,275 +1,417 @@
-/*
- * Copyright 2021, Cloudchacho
- * All rights reserved.
- *
- * Author: Aniruddha Maru
- */
-
 package taskhawk
 
 import (
 	"context"
-	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-lambda-go/events"
 	"github.com/pkg/errors"
-	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
-func TestConsumer_ListenForMessages(t *testing.T) {
-	settings := getQueueTestSettings()
-	ctx := context.Background()
-	ctxWithSettings := withSettings(context.Background(), settings)
+type contextKey string
 
-	awsClient := &FakeAWS{}
-	numMessages := uint(10)
-	visibilityTimeoutS := uint(10)
-	publisher := &publisher{
-		awsClient: awsClient,
-		settings:  settings,
-	}
-	taskRegistry, err := NewTaskRegistry(publisher)
-	require.NoError(t, err)
-	awsClient.On("FetchAndProcessMessages", ctxWithSettings, taskRegistry, PriorityHigh, numMessages,
-		visibilityTimeoutS).Return(nil)
-	consumer := queueConsumer{
-		awsClient:    awsClient,
-		settings:     settings,
-		taskRegistry: taskRegistry,
-	}
-
-	err = consumer.ListenForMessages(ctx, &ListenRequest{
-		Priority:           PriorityHigh,
-		NumMessages:        numMessages,
-		VisibilityTimeoutS: visibilityTimeoutS,
-		LoopCount:          1,
-	})
-	assert.NoError(t, err)
-	awsClient.AssertExpectations(t)
+type fakeLog struct {
+	level   string
+	err     error
+	message string
+	fields  LoggingFields
 }
 
-func TestConsumer_ListenForMessagesContextCancel(t *testing.T) {
-	settings := getQueueTestSettings()
-	ctx, cancel := context.WithCancel(context.Background())
-	ctxWithSettings := withSettings(ctx, settings)
-
-	awsClient := &FakeAWS{}
-	numMessages := uint(10)
-	visibilityTimeoutS := uint(10)
-	publisher := &publisher{
-		awsClient: awsClient,
-		settings:  settings,
-	}
-	taskRegistry, err := NewTaskRegistry(publisher)
-	require.NoError(t, err)
-	awsClient.On("FetchAndProcessMessages", ctxWithSettings, taskRegistry, PriorityHigh, numMessages,
-		visibilityTimeoutS).Return(nil).After(500 * time.Millisecond)
-	consumer := queueConsumer{
-		awsClient:    awsClient,
-		settings:     settings,
-		taskRegistry: taskRegistry,
-	}
-	ch := make(chan bool)
-	go func() {
-		err := consumer.ListenForMessages(ctx, &ListenRequest{
-			Priority:           PriorityHigh,
-			NumMessages:        numMessages,
-			VisibilityTimeoutS: visibilityTimeoutS,
-			LoopCount:          1000,
-		})
-		assert.EqualError(t, err, "context canceled")
-		ch <- true
-		close(ch)
-	}()
-	time.Sleep(1 * time.Millisecond)
-	cancel()
-	// wait for co-routine to finish
-	<-ch
-	awsClient.AssertExpectations(t)
-	assert.True(t, len(awsClient.Calls) < 1000)
+type fakeLogger struct {
+	lock sync.Mutex
+	logs []fakeLog
 }
 
-func TestConsumer_ListenForMessagesContextDeadline(t *testing.T) {
-	settings := getQueueTestSettings()
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(11*time.Second))
-	ctxWithSettings := withSettings(ctx, settings)
-
-	awsClient := &FakeAWS{}
-	numMessages := uint(10)
-	visibilityTimeoutS := uint(10)
-	publisher := &publisher{
-		awsClient: awsClient,
-		settings:  settings,
-	}
-	taskRegistry, err := NewTaskRegistry(publisher)
-	require.NoError(t, err)
-	awsClient.On("FetchAndProcessMessages", ctxWithSettings, taskRegistry, PriorityHigh, numMessages,
-		visibilityTimeoutS).Return(nil).After(500 * time.Millisecond)
-	consumer := queueConsumer{
-		awsClient:    awsClient,
-		settings:     settings,
-		taskRegistry: taskRegistry,
-	}
-	ch := make(chan bool)
-	go func() {
-		err := consumer.ListenForMessages(ctx, &ListenRequest{
-			Priority:           PriorityHigh,
-			NumMessages:        numMessages,
-			VisibilityTimeoutS: visibilityTimeoutS,
-			LoopCount:          1000,
-		})
-		assert.NoError(t, err)
-		ch <- true
-		close(ch)
-	}()
-	time.Sleep(1 * time.Millisecond)
-	defer cancel()
-	// wait for co-routine to finish
-	<-ch
-	awsClient.AssertExpectations(t)
-	assert.True(t, len(awsClient.Calls) < 1000)
+func (f *fakeLogger) Error(err error, message string, fields LoggingFields) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.logs = append(f.logs, fakeLog{"error", err, message, fields})
 }
 
-func TestConsumer_ListenForMessagesFailLambda(t *testing.T) {
-	settings := getLambdaTestSettings()
-	ctx := withSettings(context.Background(), settings)
-	awsClient := &FakeAWS{}
-	publisher := &publisher{
-		awsClient: awsClient,
-		settings:  settings,
-	}
-	taskRegistry, err := NewTaskRegistry(publisher)
-	require.NoError(t, err)
-	consumer := queueConsumer{
-		awsClient:    awsClient,
-		settings:     settings,
-		taskRegistry: taskRegistry,
-	}
-	err = consumer.ListenForMessages(ctx, &ListenRequest{
-		Priority: PriorityHigh,
-	})
-	assert.EqualError(t, err, "Can't listen for messages in a Lambda consumer")
+func (f *fakeLogger) Warn(err error, message string, fields LoggingFields) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.logs = append(f.logs, fakeLog{"warn", err, message, fields})
 }
 
-func TestConsumer_HandleLambdaEvent(t *testing.T) {
-	settings := getLambdaTestSettings()
-	ctx := context.Background()
-	ctxWithSettings := withSettings(context.Background(), settings)
-
-	snsEvent := &events.SNSEvent{
-		Records: []events.SNSEventRecord{
-			{
-				SNS: events.SNSEntity{
-					MessageID: uuid.NewV4().String(),
-					Message:   "message",
-				},
-			},
-		},
-	}
-	awsClient := &FakeAWS{}
-	publisher := &publisher{
-		awsClient: awsClient,
-		settings:  settings,
-	}
-	taskRegistry, err := NewTaskRegistry(publisher)
-	require.NoError(t, err)
-	awsClient.On("HandleLambdaEvent", ctxWithSettings, taskRegistry, snsEvent).Return(nil)
-	consumer := lambdaConsumer{
-		awsClient:    awsClient,
-		settings:     settings,
-		taskRegistry: taskRegistry,
-	}
-	err = consumer.HandleLambdaEvent(ctx, snsEvent)
-	assert.NoError(t, err)
-	awsClient.AssertExpectations(t)
+func (f *fakeLogger) Info(message string, fields LoggingFields) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.logs = append(f.logs, fakeLog{"info", nil, message, fields})
 }
 
-func TestConsumer_HandleLambdaEventFailSQS(t *testing.T) {
-	settings := getQueueTestSettings()
-	ctx := withSettings(context.Background(), settings)
-	awsClient := &FakeAWS{}
-	publisher := &publisher{
-		awsClient: awsClient,
-		settings:  settings,
-	}
-	taskRegistry, err := NewTaskRegistry(publisher)
-	require.NoError(t, err)
-	consumer := lambdaConsumer{
-		awsClient:    awsClient,
-		settings:     settings,
-		taskRegistry: taskRegistry,
-	}
-	err = consumer.HandleLambdaEvent(ctx, &events.SNSEvent{})
-	assert.EqualError(t, err, "Can't process lambda event in a SQS consumer")
+func (f *fakeLogger) Debug(message string, fields LoggingFields) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.logs = append(f.logs, fakeLog{"debug", nil, message, fields})
 }
 
-type fakeLambdaConsumer struct {
+type fakeTaskInput struct {
+	To string
+}
+
+type fakeTask struct {
 	mock.Mock
-	ILambdaConsumer
 }
 
-func (lambdaConsumer *fakeLambdaConsumer) HandleLambdaEvent(ctx context.Context, snsEvent *events.SNSEvent) error {
-	args := lambdaConsumer.Called(ctx, snsEvent)
+func (fc *fakeTask) Call(ctx context.Context, input *fakeTaskInput) error {
+	args := fc.Called(ctx, input)
 	return args.Error(0)
 }
 
-func TestLambdaHandler_Invoke(t *testing.T) {
-	lambdaConsumer := &fakeLambdaConsumer{}
-	handler := LambdaHandler{
-		lambdaConsumer: lambdaConsumer,
-	}
-	ctx := context.Background()
-	snsEvent := &events.SNSEvent{}
-	payload, err := json.Marshal(snsEvent)
-	require.NoError(t, err)
-
-	lambdaConsumer.On("HandleLambdaEvent", ctx, snsEvent).Return(nil)
-
-	response, err := handler.Invoke(ctx, payload)
-	assert.NoError(t, err)
-	assert.Equal(t, []byte(""), response)
-
-	lambdaConsumer.AssertExpectations(t)
+type fakeBackend struct {
+	mock.Mock
 }
 
-func TestLambdaHandler_InvokeFailUnmarshal(t *testing.T) {
-	lambdaConsumer := &fakeLambdaConsumer{}
-	handler := LambdaHandler{
-		lambdaConsumer: lambdaConsumer,
-	}
-	ctx := context.Background()
-
-	response, err := handler.Invoke(ctx, []byte("bad payload"))
-	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
-	assert.Nil(t, response)
+func (b *fakeBackend) Receive(ctx context.Context, priority Priority, numMessages uint32, visibilityTimeout time.Duration, messageCh chan<- ReceivedMessage) error {
+	args := b.Called(ctx, priority, numMessages, visibilityTimeout, messageCh)
+	return args.Error(0)
 }
 
-func TestLambdaHandler_InvokeFailHandler(t *testing.T) {
-	lambdaConsumer := &fakeLambdaConsumer{}
-	handler := LambdaHandler{
-		lambdaConsumer: lambdaConsumer,
-	}
-	ctx := context.Background()
-	snsEvent := &events.SNSEvent{}
-	payload, err := json.Marshal(snsEvent)
-	require.NoError(t, err)
-
-	lambdaConsumer.On("HandleLambdaEvent", ctx, snsEvent).Return(errors.New("oops"))
-
-	response, err := handler.Invoke(ctx, payload)
-	assert.EqualError(t, err, "oops")
-	assert.Nil(t, response)
-
-	lambdaConsumer.AssertExpectations(t)
+func (b *fakeBackend) NackMessage(ctx context.Context, providerMetadata interface{}) error {
+	args := b.Called(ctx, providerMetadata)
+	return args.Error(0)
 }
 
-func TestNewLambdaHandler(t *testing.T) {
-	lambdaConsumer := &fakeLambdaConsumer{}
-	handler := NewLambdaHandler(lambdaConsumer)
-	assert.NotNil(t, handler)
+func (b *fakeBackend) AckMessage(ctx context.Context, providerMetadata interface{}) error {
+	args := b.Called(ctx, providerMetadata)
+	return args.Error(0)
+}
+
+func (b *fakeBackend) Publish(ctx context.Context, payload []byte, attributes map[string]string, priority Priority) (string, error) {
+	args := b.Called(ctx, payload, attributes, priority)
+	return args.String(0), args.Error(1)
+}
+
+func (b *fakeBackend) RequeueDLQ(ctx context.Context, priority Priority, numMessages uint32, visibilityTimeout time.Duration) error {
+	args := b.Called(ctx, priority, numMessages, visibilityTimeout)
+	return args.Error(0)
+}
+
+type fakeInstrumenter struct {
+	mock.Mock
+}
+
+func (f *fakeInstrumenter) OnTask(ctx context.Context, taskName string) {
+	f.Called(ctx, taskName)
+}
+
+func (f *fakeInstrumenter) OnDispatch(ctx context.Context, taskName string, attributes map[string]string) (context.Context, map[string]string, func()) {
+	args := f.Called(ctx, taskName, attributes)
+	return args.Get(0).(context.Context), args.Get(1).(map[string]string), args.Get(2).(func())
+}
+
+func (f *fakeInstrumenter) OnReceive(ctx context.Context, attributes map[string]string) (context.Context, func()) {
+	args := f.Called(ctx, attributes)
+	return args.Get(0).(context.Context), args.Get(1).(func())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessage() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", ctx, input).
+		Return(nil)
+	s.backend.On("AckMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessageDeserializeFailure() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(message{}, errors.New("invalid message"))
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 1)
+	s.Equal(s.logger.logs[0].message, "invalid message, unable to unmarshal")
+	s.EqualError(s.logger.logs[0].err, "invalid message")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessageCallbackFailure() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", ctx, input).
+		Return(errors.New("failed to process"))
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 1)
+	s.Equal(s.logger.logs[0].message, "Retrying due to unknown exception")
+	s.EqualError(s.logger.logs[0].err, "failed to process")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessageCallbackPanic() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", ctx, input).
+		Panic("failed to process")
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 1)
+	s.Equal(s.logger.logs[0].message, "Retrying due to unknown exception")
+	s.EqualError(s.logger.logs[0].err, "panic: failed to process")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessageCallbackErrRetry() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", ctx, input).
+		Return(ErrRetry)
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 1)
+	s.Equal(s.logger.logs[0].message, "Retrying due to exception")
+	s.NoError(s.logger.logs[0].err)
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessageTaskNotFound() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	delete(s.hub.tasks, "main.SendEmail")
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 1)
+	s.Contains(s.logger.logs[0].message, "no task found")
+	s.EqualError(s.logger.logs[0].err, "task not found: main.SendEmail")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessNackFailure() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", ctx, input).
+		Return(errors.New("failed to process"))
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(errors.New("failed to nack"))
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 2)
+	s.Equal(s.logger.logs[0].message, "Retrying due to unknown exception")
+	s.EqualError(s.logger.logs[0].err, "failed to process")
+	s.Equal(s.logger.logs[1].message, "Failed to nack message")
+	s.EqualError(s.logger.logs[1].err, "failed to nack")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessageAckFailure() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", ctx, input).
+		Return(nil)
+	s.backend.On("AckMessage", ctx, providerMetadata).
+		Return(errors.New("failed to ack"))
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 1)
+	s.Equal(s.logger.logs[0].message, "Failed to ack message")
+	s.EqualError(s.logger.logs[0].err, "failed to ack")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestProcessMessageFollowsParentTrace() {
+	ctx := context.Background()
+	instrumentedCtx := context.WithValue(ctx, contextKey("instrumented"), true)
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123", "traceparent": "00-aa2ada259e917551e16da4a0ad33db24-662fd261d30ec74c-01"}
+	providerMetadata := struct{}{}
+	instrumenter := &fakeInstrumenter{}
+	s.consumer.instrumenter = instrumenter
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", instrumentedCtx, input).
+		Return(nil)
+	s.backend.On("AckMessage", instrumentedCtx, providerMetadata).
+		Return(nil)
+	called := false
+	instrumenter.On("OnReceive", ctx, attributes).
+		Return(instrumentedCtx, func() { called = true })
+	instrumenter.On("OnTask", instrumentedCtx, m.TaskName)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+	instrumenter.AssertExpectations(s.T())
+	s.True(called)
+}
+
+func (s *ConsumerTestSuite) TestListenForMessages() {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel()
+	numMessages := uint32(10)
+	visibilityTimeout := time.Second * 20
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	payload2 := []byte(`foobar2`)
+	attributes2 := map[string]string{"request_id": "456"}
+	providerMetadata2 := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	input2 := &fakeTaskInput{To: "fake2@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	m2 := message{TaskName: "main.SendEmail", Input: input2}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.deserializer.On("deserialize", s.hub, payload2, attributes2).
+		Return(m2, nil)
+	s.taskFn.On("Call", ctx, input2).
+		Return(nil).
+		After(time.Millisecond * 50)
+	s.taskFn.On("Call", ctx, input).
+		Return(nil)
+	s.backend.On("AckMessage", ctx, providerMetadata).
+		Return(nil)
+	s.backend.On("AckMessage", ctx, providerMetadata2).
+		Return(nil)
+	s.backend.On("Receive", ctx, PriorityDefault, numMessages, visibilityTimeout, mock.AnythingOfType("chan<- taskhawk.ReceivedMessage")).
+		Return(context.Canceled).
+		Run(func(args mock.Arguments) {
+			ch := args.Get(4).(chan<- ReceivedMessage)
+			ch <- ReceivedMessage{
+				Payload:          payload,
+				Attributes:       attributes,
+				ProviderMetadata: providerMetadata,
+			}
+			ch <- ReceivedMessage{
+				Payload:          payload2,
+				Attributes:       attributes2,
+				ProviderMetadata: providerMetadata2,
+			}
+		}).
+		After(500 * time.Millisecond)
+	err := s.consumer.ListenForMessages(ctx, ListenRequest{PriorityDefault, numMessages, visibilityTimeout, 1})
+	assert.EqualError(s.T(), err, "context canceled")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
+func (s *ConsumerTestSuite) TestNew() {
+	assert.NotNil(s.T(), s.consumer)
+}
+
+type fakeDeserializer struct {
+	mock.Mock
+}
+
+func (f *fakeDeserializer) deserialize(h *Hub, messagePayload []byte, attributes map[string]string) (message, error) {
+	args := f.Called(h, messagePayload, attributes)
+	return args.Get(0).(message), args.Error(1)
+}
+
+type ConsumerTestSuite struct {
+	suite.Suite
+	consumer     *queueConsumer
+	backend      *fakeBackend
+	taskFn       *fakeTask
+	logger       *fakeLogger
+	deserializer *fakeDeserializer
+	hub          *Hub
+}
+
+func (s *ConsumerTestSuite) SetupTest() {
+	taskFn := &fakeTask{}
+	logger := &fakeLogger{}
+	getLogger := func(_ context.Context) Logger {
+		return logger
+	}
+
+	backend := &fakeBackend{}
+	deserializer := &fakeDeserializer{}
+	hub := NewHub(Config{}, backend)
+	_, err := RegisterTask(hub, "main.SendEmail", taskFn.Call)
+	s.Require().NoError(err)
+
+	s.consumer = &queueConsumer{consumer{
+		backend:      backend,
+		deserializer: deserializer,
+		instrumenter: nil,
+		getLogger:    getLogger,
+		hub:          hub,
+	}}
+	s.hub = hub
+	s.consumer.deserializer = deserializer
+	s.backend = backend
+	s.taskFn = taskFn
+	s.deserializer = deserializer
+	s.logger = logger
+}
+
+func TestConsumerTestSuite(t *testing.T) {
+	suite.Run(t, &ConsumerTestSuite{})
 }
