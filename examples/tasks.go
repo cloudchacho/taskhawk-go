@@ -11,8 +11,6 @@ import (
 	"github.com/cloudchacho/taskhawk-go"
 )
 
-const SendEmailTaskName = "SendEmail"
-
 type SendEmailInput struct {
 	To   string
 	From string
@@ -74,9 +72,9 @@ func registerTasks(hub *taskhawk.Hub, fakeTaskErr string) (taskRegistry, error) 
 	var t taskRegistry
 	var err error
 	if fakeTaskErr != "" {
-		t.SendEmailTask, err = taskhawk.RegisterTask(hub, SendEmailTaskName, SendEmailFailure(fakeTaskErr), taskhawk.PriorityDefault)
+		t.SendEmailTask, err = taskhawk.RegisterTask(hub, "SendEmail", SendEmailFailure(fakeTaskErr))
 	} else {
-		t.SendEmailTask, err = taskhawk.RegisterTask(hub, SendEmailTaskName, SendEmail, taskhawk.PriorityDefault)
+		t.SendEmailTask, err = taskhawk.RegisterTask(hub, "SendEmail", SendEmail)
 	}
 	return t, err
 }

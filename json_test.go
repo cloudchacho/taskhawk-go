@@ -84,7 +84,7 @@ func TestSerialize(t *testing.T) {
 	require.NoError(t, err)
 
 	jsonStr := `{"headers":{"request_id":"request-id"},"id":"message-id","kwargs":{"to":"mail@example.com",` +
-		`"from":"mail@spammer.com","time":"2022-04-18T10:36:00-07:00"},"metadata":{"priority":"default",` +
+		`"from":"mail@spammer.com","time":"2022-04-18T17:36:00Z"},"metadata":{"priority":"default",` +
 		`"timestamp":1521493587123,"version":"1.0"},"task":"task_test.SendEmailTask"}`
 	attributes := map[string]string{
 		headerTask:   "task_test.SendEmailTask",
