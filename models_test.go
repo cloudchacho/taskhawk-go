@@ -82,7 +82,7 @@ func TestMessageToJson(t *testing.T) {
 	_, err := RegisterTask(hub, "task_test.SendEmailTask", taskRef.Run)
 	require.NoError(t, err)
 
-	at := time.UnixMilli(1650303360000)
+	at := time.UnixMilli(1650303360000).In(time.UTC)
 	input := &SendEmailTaskInput{
 		To:   "mail@example.com",
 		From: "mail@spammer.com",
@@ -90,7 +90,7 @@ func TestMessageToJson(t *testing.T) {
 	}
 	m := getValidMessage(t, hub, input)
 	expected := `{"headers":{"request_id":"request-id"},"id":"message-id",` +
-		`"kwargs":{"to":"mail@example.com","from":"mail@spammer.com","time":"2022-04-18T10:36:00-07:00"},` +
+		`"kwargs":{"to":"mail@example.com","from":"mail@spammer.com","time":"2022-04-18T17:36:00Z"},` +
 		`"metadata":{"priority":"default","timestamp":1521493587123,"version":"1.0"},"task":"task_test.SendEmailTask"}`
 	actual, err := json.Marshal(m)
 	assert.NoError(t, err)
@@ -103,7 +103,7 @@ func TestMessageToJsonMinimal(t *testing.T) {
 	_, err := RegisterTask(hub, "task_test.SendEmailTask", taskRef.Run)
 	require.NoError(t, err)
 
-	at := time.UnixMilli(1650303360000)
+	at := time.UnixMilli(1650303360000).In(time.UTC)
 	input := &SendEmailTaskInput{
 		To:   "mail@example.com",
 		From: "mail@spammer.com",
@@ -112,7 +112,7 @@ func TestMessageToJsonMinimal(t *testing.T) {
 	m := getValidMessage(t, hub, input)
 	m.Headers = map[string]string{}
 	expected := `{"headers":{},"id":"message-id",` +
-		`"kwargs":{"to":"mail@example.com","from":"mail@spammer.com","time":"2022-04-18T10:36:00-07:00"},` +
+		`"kwargs":{"to":"mail@example.com","from":"mail@spammer.com","time":"2022-04-18T17:36:00Z"},` +
 		`"metadata":{"priority":"default","timestamp":1521493587123,"version":"1.0"},"task":"task_test.SendEmailTask"}`
 	actual, err := json.Marshal(m)
 	assert.NoError(t, err)
