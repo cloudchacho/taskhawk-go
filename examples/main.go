@@ -28,14 +28,14 @@ func runPublisher(tr taskRegistry) {
 	ctx, span := tracer.Start(ctx, "publisher")
 	defer span.End()
 	input := &SendEmailInput{To: "hello@example.com", From: "spam@example.com"}
-	requestId := uuid.NewV4().String()
-	input.SetHeaders(map[string]string{"request_id": requestId})
+	requestID := uuid.NewV4().String()
+	input.SetHeaders(map[string]string{"request_id": requestID})
 	err := tr.SendEmailTask.Dispatch(ctx, input)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to publish message: %v", err))
 	}
 	fmt.Printf("[%s/%s], Published message successfully with request id %s\n",
-		span.SpanContext().TraceID(), span.SpanContext().SpanID(), requestId)
+		span.SpanContext().TraceID(), span.SpanContext().SpanID(), requestID)
 }
 
 func requeueDLQ(hub *taskhawk.Hub, backend taskhawk.ConsumerBackend) {

@@ -37,6 +37,7 @@ func TestCall(t *testing.T) {
 
 	hub := NewHub(Config{}, nil)
 	_, err := RegisterTask(hub, "main.SendEmailTask", taskRef.Run)
+	require.NoError(t, err)
 
 	fetchedTask, err := hub.getTask("main.SendEmailTask")
 	require.NoError(t, err)
@@ -101,14 +102,15 @@ func TestCallHeaders(t *testing.T) {
 
 	hub := NewHub(Config{}, nil)
 	_, err := RegisterTask(hub, "main.SendEmailTaskHeaders", taskRef.Run)
+	require.NoError(t, err)
 
 	fetchedTask, err := hub.getTask("main.SendEmailTaskHeaders")
 	require.NoError(t, err)
 
-	requestId := uuid.NewV4().String()
+	requestID := uuid.NewV4().String()
 
 	m := message{
-		Headers: map[string]string{"request_id": requestId},
+		Headers: map[string]string{"request_id": requestID},
 		ID:      "message-id",
 		Input:   &SendEmailTaskHeadersInput{},
 		Metadata: metadata{
@@ -121,7 +123,7 @@ func TestCallHeaders(t *testing.T) {
 	providerHeaders := struct{}{}
 
 	expectedInput := &SendEmailTaskHeadersInput{}
-	expectedInput.SetHeaders(map[string]string{"request_id": requestId})
+	expectedInput.SetHeaders(map[string]string{"request_id": requestID})
 	taskRef.On("Run", ctx, expectedInput).Return(nil)
 
 	err = fetchedTask.call(ctx, m, providerHeaders)
@@ -174,6 +176,7 @@ func TestCallMetadata(t *testing.T) {
 
 	hub := NewHub(Config{}, nil)
 	_, err := RegisterTask(hub, "main.SendEmailTaskMetadata", taskRef.Run)
+	require.NoError(t, err)
 
 	fetchedTask, err := hub.getTask("main.SendEmailTaskMetadata")
 	require.NoError(t, err)
