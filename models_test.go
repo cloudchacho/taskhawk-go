@@ -173,6 +173,17 @@ func TestMessage_ValidateFail_NoVersion(t *testing.T) {
 	assert.EqualError(t, m.validate(), "missing required data")
 }
 
+func TestMessage_ValidateFail_BadVersion(t *testing.T) {
+	hub := NewHub(Config{}, nil)
+	taskRef := SendEmailTask{}
+	_, err := RegisterTask(hub, "task_test.SendEmailTask", taskRef.Run)
+	require.NoError(t, err)
+
+	m := getValidMessage(t, hub, (*SendEmailTaskInput)(nil))
+	m.Metadata.Version = "2.0"
+	assert.EqualError(t, m.validate(), "invalid version: 2.0")
+}
+
 func TestMessage_ValidateFail_NoTimestamp(t *testing.T) {
 	hub := NewHub(Config{}, nil)
 	taskRef := SendEmailTask{}
@@ -242,4 +253,27 @@ func TestMessage_newMessage(t *testing.T) {
 func TestMessage_newMessage_Validates(t *testing.T) {
 	_, err := newMessage("task_test.SendEmailTask", nil, nil, "", PriorityDefault)
 	assert.EqualError(t, err, "missing required data")
+}
+
+func TestPriority_MarshalUnmarshal(t *testing.T) {
+	tests := map[string]struct {
+		priority Priority
+	}{
+		"default": {PriorityDefault},
+		"high":    {PriorityHigh},
+		"low":     {PriorityLow},
+		"bulk":    {PriorityBulk},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			s, err := json.Marshal(test.priority)
+			assert.NoError(t, err)
+			assert.Equal(t, `"`+name+`"`, string(s))
+
+			var p Priority
+			err = json.Unmarshal([]byte(`"`+name+`"`), &p)
+			assert.NoError(t, err)
+			assert.Equal(t, p, test.priority)
+		})
+	}
 }

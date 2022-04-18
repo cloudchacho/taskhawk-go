@@ -52,7 +52,7 @@ func (n *testSpan) SetName(value string) {
 	n.name = value
 }
 
-func TesOnTask(t *testing.T) {
+func TestOnTask(t *testing.T) {
 	a := assert.New(t)
 
 	instrumenter := NewInstrumenter(&testTracerProvider{}, propagation.TraceContext{})
@@ -101,9 +101,9 @@ func TestOnReceiveStartNewSpan(t *testing.T) {
 		ctx, publishingSpan := tp.Tracer(tracerName).Start(ctx, "test")
 		publishingTraceID = publishingSpan.SpanContext().TraceID()
 		publishingSpanID = publishingSpan.SpanContext().SpanID()
-		ac := attributesCarrier{attributes}
+		ac := propagation.MapCarrier(attributes)
 		prop.Inject(ctx, ac)
-		attributes = ac.attributes
+		attributes = ac
 		publishingSpan.End()
 	}
 

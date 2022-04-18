@@ -191,6 +191,30 @@ func (s *ConsumerTestSuite) TestProcessMessageCallbackPanic() {
 	s.taskFn.AssertExpectations(s.T())
 }
 
+func (s *ConsumerTestSuite) TestProcessMessageCallbackPanicError() {
+	ctx := context.Background()
+	payload := []byte(`foobar`)
+	attributes := map[string]string{"request_id": "123"}
+	providerMetadata := struct{}{}
+	input := &fakeTaskInput{To: "fake@example.com"}
+	m := message{TaskName: "main.SendEmail", Input: input}
+	s.deserializer.On("deserialize", s.hub, payload, attributes).
+		Return(m, nil)
+	s.taskFn.On("Call", ctx, input).
+		Run(func(_ mock.Arguments) {
+			panic(errors.New("oops"))
+		})
+	s.backend.On("NackMessage", ctx, providerMetadata).
+		Return(nil)
+	s.consumer.processMessage(ctx, payload, attributes, providerMetadata)
+	s.Equal(len(s.logger.logs), 1)
+	s.Equal(s.logger.logs[0].message, "Retrying due to unknown exception")
+	s.EqualError(s.logger.logs[0].err, "task failed with panic: oops")
+	s.backend.AssertExpectations(s.T())
+	s.deserializer.AssertExpectations(s.T())
+	s.taskFn.AssertExpectations(s.T())
+}
+
 func (s *ConsumerTestSuite) TestProcessMessageCallbackErrRetry() {
 	ctx := context.Background()
 	payload := []byte(`foobar`)

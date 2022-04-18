@@ -235,6 +235,25 @@ func TestDispatchSync(t *testing.T) {
 	taskRef.AssertExpectations(t)
 }
 
+func TestDispatch_ErrorMessageCreationFailure(t *testing.T) {
+	ctx := context.Background()
+
+	backend := &fakeBackend{}
+	hub := NewHub(Config{}, backend)
+	taskRef := SendEmailTask{}
+	task, err := RegisterTask(hub, "task_test.SendEmailTask", taskRef.Run)
+	require.NoError(t, err)
+
+	task.taskName = ""
+
+	input := &SendEmailTaskInput{}
+
+	err = task.DispatchWithPriority(ctx, input, PriorityLow)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing required data")
+	backend.AssertExpectations(t)
+}
+
 func TestRegisterTask(t *testing.T) {
 	backend := &fakeBackend{}
 	hub := NewHub(Config{Sync: true}, backend)
@@ -259,4 +278,36 @@ func TestRegisterTaskSendEmailTaskNoName(t *testing.T) {
 	taskRef := SendEmailTask{}
 	_, err := RegisterTask(hub, "", taskRef.Run)
 	assert.EqualError(t, err, "task name not set")
+}
+
+func TestListenForMessages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel()
+	hub := NewHub(Config{}, nil)
+	request := ListenRequest{Priority: PriorityDefault, NumMessages: 10, VisibilityTimeout: time.Second * 20}
+	backend := &fakeBackend{}
+	backend.On("Receive", ctx, PriorityDefault, uint32(10), time.Second*20, mock.AnythingOfType("chan<- taskhawk.ReceivedMessage")).
+		Run(func(args mock.Arguments) {
+			<-args.Get(0).(context.Context).Done()
+		}).
+		After(time.Millisecond * 500).
+		Return(context.Canceled)
+	err := hub.ListenForMessages(ctx, request, backend)
+	assert.EqualError(t, err, "context canceled")
+}
+
+func TestRequeueDLQ(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel()
+	hub := NewHub(Config{}, nil)
+	request := ListenRequest{Priority: PriorityDefault, NumMessages: 10, VisibilityTimeout: time.Second * 20}
+	backend := &fakeBackend{}
+	backend.On("RequeueDLQ", ctx, PriorityDefault, uint32(10), time.Second*20).
+		Run(func(args mock.Arguments) {
+			<-args.Get(0).(context.Context).Done()
+		}).
+		After(time.Millisecond * 500).
+		Return(context.Canceled)
+	err := hub.RequeueDLQ(ctx, request, backend)
+	assert.EqualError(t, err, "context canceled")
 }

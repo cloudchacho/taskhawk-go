@@ -93,7 +93,7 @@ func TestSerialize(t *testing.T) {
 	input := &SendEmailTaskInput{
 		To:   "mail@example.com",
 		From: "mail@spammer.com",
-		At:   time.UnixMilli(1650303360000),
+		At:   time.UnixMilli(1650303360000).In(time.UTC),
 	}
 	m := getValidMessage(t, hub, input)
 	m.Headers["request_id"] = "request-id"
@@ -120,4 +120,23 @@ func TestSerialize_ErrorMarshaling(t *testing.T) {
 	_, _, err = jsonifier{}.serialize(m)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "json: unsupported type")
+}
+
+func TestSerialize_InvalidHeaders(t *testing.T) {
+	hub := NewHub(Config{}, nil)
+	taskRef := SendEmailTask{}
+	_, err := RegisterTask(hub, "task_test.SendEmailTask", taskRef.Run)
+	require.NoError(t, err)
+
+	input := &SendEmailTaskInput{
+		To:   "mail@example.com",
+		From: "mail@spammer.com",
+		At:   time.UnixMilli(1650303360000),
+	}
+	m := getValidMessage(t, hub, input)
+	m.Headers["taskhawk_foobar"] = "something"
+
+	_, _, err = jsonifier{}.serialize(m)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid header key")
 }
