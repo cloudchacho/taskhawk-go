@@ -18,13 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go_version: ['1.17']
+        go: ['1.18']
     steps:
       - id: setup
         name: Setup Go
         uses: actions/setup-go@v2
         with:
-          go-version: ${{ matrix.go_version }}
+          go-version: ${{ matrix.go }}
 
       - id: checkout
         name: Checkout PR
