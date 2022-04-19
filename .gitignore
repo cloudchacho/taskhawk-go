@@ -4,6 +4,7 @@
 # Unit test / coverage reports
 .coverage
 .tox
+coverage.txt
 
 # Translations
 *.mo

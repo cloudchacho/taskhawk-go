@@ -1,14 +1,14 @@
-# TaskHawk Go
+# Taskhawk Go
 
 [![Build Status](https://github.com/cloudchacho/taskhawk-go/checks)](https://github.com/cloudchacho/taskhawk-go/actions/workflows/gotest.yml/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/cloudchacho/taskhawk-go)](https://goreportcard.com/report/github.com/cloudchacho/taskhawk-go)
 [![Godoc](https://godoc.org/github.com/cloudchacho/taskhawk-go?status.svg)](http://godoc.org/github.com/cloudchacho/taskhawk-go)
 [![codecov](https://codecov.io/gh/cloudchacho/taskhawk-go/branch/main/graph/badge.svg?token=H6VWFF04JD)](https://codecov.io/gh/cloudchacho/taskhawk-go)
 
-TaskHawk is a replacement for celery that works on AWS and GCP, while keeping things pretty simple and straight 
-forward. Any unbound function can be converted into a TaskHawk task.
+Taskhawk is an async task execution framework (à la celery) that works on AWS and GCP, while keeping
+things pretty simple and straight forward. Any unbound function can be converted into a Taskhawk task.
 
-Only Go 1.10+ is supported currently.
+Only Go 1.18+ is supported currently.
 
 This project uses [semantic versioning](http://semver.org/).
 
@@ -20,29 +20,22 @@ First, install the library:
 go get github.com/cloudchacho/taskhawk-go
 ```
 
-Convert your function into a "Task" as shown here:
+If your function takes multiple arguments, convert your function into a "Task" as shown here:
 
 ```go
 type SendEmailTaskInput struct {...}
 
-type SendEmailTask struct {
-    taskhawk.Task
-}
-
-func (t *SendEmailTask) Run(context context.Context, rawInput interface{}) error {
-    input := rawInput.(*SendEmailTaskInput)
+func SendEmail(ctx context.Context, input *SendEmailTaskInput) error {
     // send email
 }
 ```
 
-Tasks may accept input of arbitrary type as long as it's serializable to JSON
+Tasks may accept input of arbitrary pointer type as long as it's serializable to JSON. Remember to export fields!
 
-Then, define a few required settings:
+Then, define your backend:
 
 ```go
-sessionCache := NewAWSSessionsCache()
-
-settings := taskhawk.Settings{
+settings := aws.Settings{
     AWSAccessKey: <YOUR AWS ACCESS KEY>,
     AWSAccountID: <YOUR AWS ACCOUNT ID>,
     AWSRegion: <YOUR AWS REGION>,
@@ -50,35 +43,27 @@ settings := taskhawk.Settings{
 
     Queue: <YOUR TASKHAWK QUEUE>,
 }
-taskhawk.InitSettings(settings)
+backend := aws.NewBackend(settings, nil)
 ```
 
 Before the task can be dispatched, it would need to be registered, as shown below.
-It is recommended that the task names are centrally managed by the application.
 
 ```go
-taskRegistry, _ := NewTaskRegistry(NewPublisher(sessionCache, settings))
-taskRegistry.RegisterTask(&SendEmailTask{
-    Task: taskhawk.Task{
-        Inputer: func() interface{} {
-            return &SendEmailTaskInput{}
-        },
-        TaskName: "SendEmailTask",
-    },
-})
+hub := NewHub(Config{...}, backend)
+task, err := taskhawk.RegisterTask(hub, "SendEmailTask", SendEmailTask)
 ```
 
 And finally, dispatch your task asynchronously:
 
 ```go
-taskRegistry.dispatch("SendEmailTask", &SendEmailTaskInput{...})
+task.dispatch(&SendEmailTaskInput{...})
 ```
 
 ## Development
 
 ### Prerequisites
 
-Install go1.11.x
+Install go1.18.x
 
 ### Getting Started
 

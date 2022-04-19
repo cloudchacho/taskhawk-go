@@ -10,12 +10,16 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ['1.18']
     steps:
       - id: setup
         name: Setup Golang
         uses: actions/setup-go@v2
         with:
-          go-version: '1.16'
+          go-version: ${{ matrix.go }}
+          stable: ${{ !contains(matrix.go, 'beta') }}
 
       - id: checkout
         name: Checkout PR
@@ -39,4 +43,4 @@ jobs:
         name: Upload coverage to Codecov
         uses: codecov/codecov-action@v1
         with:
-          files: ./coverage.txt,./aws/coverage.txt,./jsonschema/coverage.txt,./protobuf/coverage.txt
+          files: ./coverage.txt,./aws/coverage.txt,./gcp/coverage.txt
